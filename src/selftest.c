@@ -98,6 +98,31 @@ int main(void) {
             if (!saw_off) bad += fail("808 midi out kick off");
             play_preview(k, 0, 0);
         }
+        {
+            char err[160];
+            if (!play_export_xpm(k, "/tmp/mg-xpm-test", "808 Kit", err, (int)sizeof err))
+                bad += fail(err[0] ? err : "export xpm");
+            else {
+                FILE *xf = fopen("/tmp/mg-xpm-test/808 Kit/808 Kit.xpm", "rb");
+                if (!xf) bad += fail("xpm missing");
+                else {
+                    fseek(xf, 0, SEEK_END);
+                    long n = ftell(xf);
+                    rewind(xf);
+                    char *t = malloc((size_t)n + 1);
+                    if (!t || fread(t, 1, (size_t)n, xf) != (size_t)n) bad += fail("xpm read");
+                    else {
+                        t[n] = 0;
+                        if (!strstr(t, "<Program type=\"Drum\">")) bad += fail("xpm not a drum program");
+                        if (!strstr(t, "<SampleName>Kick 808 1</SampleName>")) bad += fail("xpm kick name");
+                    }
+                    free(t);
+                    fclose(xf);
+                }
+                if (access("/tmp/mg-xpm-test/808 Kit/Kick 808 1.wav", F_OK) != 0)
+                    bad += fail("exported kick wav");
+            }
+        }
     play_set_bpm(k, 120);
     play_preview(k, 0, 1);
     {

@@ -36,3 +36,10 @@ int play_midi_out(PlayKit *k, uint8_t ev[][4], int max);
 int play_pattern_text(const PlayKit *k, int index, char *buf, int n);
 /* One-track MIDI file, 960 ticks per quarter, note 48 = pad 1. Returns the byte count, or 0. */
 int play_pattern_midi(const PlayKit *k, int index, int bpm, uint8_t *dst, int dst_n);
+void play_all_off(PlayKit *k);
+/* Sample slice already in memory, or NULL. start/end are inclusive-exclusive frames. */
+const int16_t *play_pad_pcm(const PlayKit *k, int pad, int *start, int *end, int *frames);
+int play_pad_src(const PlayKit *k, int pad);
+int play_pad_chokes(const PlayKit *k, int pad, int *dst, int max);
+/* Write a native MPC drum program (.xpm + wavs) of this group into dir/name/. 1 = ok. */
+int play_export_xpm(PlayKit *k, const char *dir, const char *name, char *err, int err_n);

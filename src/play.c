@@ -586,6 +586,37 @@ PlayKit *play_load(const char *path) {
     return k;
 }
 
+void play_all_off(PlayKit *k) {
+    if (!k) return;
+    for (int i = 0; i < MX_PADS; i++) {
+        k->v[i].on = 0;
+        k->v[i].fade = 0;
+        k->v[i].tail = 0;
+        k->v[i].played = 0;
+    }
+}
+
+const int16_t *play_pad_pcm(const PlayKit *k, int pad, int *start, int *end, int *frames) {
+    if (!k || pad < 0 || pad >= k->g.npad || !k->v[pad].pcm) return NULL;
+    if (start) *start = k->v[pad].desc.start;
+    if (end) *end = k->v[pad].desc.end;
+    if (frames) *frames = k->v[pad].frames;
+    return k->v[pad].pcm;
+}
+
+int play_pad_src(const PlayKit *k, int pad) {
+    if (!k || pad < 0 || pad >= k->g.npad) return MX_EMPTY;
+    return k->v[pad].desc.src;
+}
+
+int play_pad_chokes(const PlayKit *k, int pad, int *dst, int max) {
+    if (!k || pad < 0 || pad >= k->g.npad || !dst || max < 1) return 0;
+    int n = k->v[pad].desc.nchoke;
+    if (n > max) n = max;
+    for (int i = 0; i < n; i++) dst[i] = k->v[pad].desc.choke[i];
+    return n;
+}
+
 void play_free(PlayKit *k) {
     if (!k) return;
     for (int i = 0; i < MX_PADS; i++) {

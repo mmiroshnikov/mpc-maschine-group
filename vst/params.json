@@ -2572,6 +2572,14 @@
       "max": 1,
       "default": 0,
       "momentary": true
+    },
+    {
+      "key": "export_kit",
+      "name": "Make kit",
+      "min": 0,
+      "max": 1,
+      "default": 0,
+      "momentary": true
     }
   ]
 }

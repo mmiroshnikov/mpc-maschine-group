@@ -7,6 +7,7 @@
 #include <ctype.h>
 #include <dirent.h>
 #include <dlfcn.h>
+#include <errno.h>
 #include <math.h>
 #include <pthread.h>
 #include <stdio.h>
@@ -73,6 +74,10 @@ typedef struct {
     int (*seq_out)(void *, void *);
     int echo_on[128];   /* notes we sent, waiting to come back and be ignored */
     int echo_off[128];
+
+    pthread_t export_th;
+    int export_on;
+    int need_export;
 } State;
 
 static int put(char *buf, int n, const char *s) {
@@ -556,9 +561,124 @@ static void reveal_kit(State *s) {
 static void follow_transport(State *s);
 static void rebuild_grid(State *s);
 
+static int ensure_dir(const char *path) {
+    if (is_dir(path)) return 1;
+    char par[PATH_N];
+    snprintf(par, sizeof par, "%s", path);
+    char *sl = strrchr(par, '/');
+    if (sl && sl != par) {
+        *sl = 0;
+        if (!is_dir(par)) return 0;
+    }
+    return mkdir(path, 0777) == 0 || errno == EEXIST;
+}
+
+static int pick_export_dir(const State *s, char *out, int n) {
+    static const char *fixed[] = {
+        "/sdcard/MPC Documents/Drums",
+        "/sdcard/Force Documents/Drums",
+        "/sdcard/Expansions/Kits & Patterns",
+        NULL
+    };
+    for (int i = 0; fixed[i]; i++) {
+        if (ensure_dir(fixed[i])) {
+            snprintf(out, (size_t)n, "%s", fixed[i]);
+            return 1;
+        }
+    }
+    DIR *d = opendir("/media");
+    if (d) {
+        struct dirent *de;
+        while ((de = readdir(d))) {
+            if (de->d_name[0] == '.') continue;
+            char cand[PATH_N];
+            snprintf(cand, sizeof cand, "/media/%s/MPC Documents/Drums", de->d_name);
+            if (ensure_dir(cand)) {
+                snprintf(out, (size_t)n, "%s", cand);
+                closedir(d);
+                return 1;
+            }
+            snprintf(cand, sizeof cand, "/media/%s/Force Documents/Drums", de->d_name);
+            if (ensure_dir(cand)) {
+                snprintf(out, (size_t)n, "%s", cand);
+                closedir(d);
+                return 1;
+            }
+            snprintf(cand, sizeof cand, "/media/%s/Expansions/Kits & Patterns", de->d_name);
+            if (is_dir(cand)) {
+                snprintf(out, (size_t)n, "%s", cand);
+                closedir(d);
+                return 1;
+            }
+        }
+        closedir(d);
+    }
+    if (s->data_dir[0]) {
+        char parent[PATH_N];
+        snprintf(parent, sizeof parent, "%s", s->data_dir);
+        char *sl = strrchr(parent, '/');
+        if (sl && sl != parent) *sl = 0;
+        char kits[PATH_N];
+        snprintf(kits, sizeof kits, "%s/kits", parent);
+        if (ensure_dir(kits)) {
+            snprintf(out, (size_t)n, "%s", kits);
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static void *export_main(void *arg) {
+    State *s = arg;
+    char src[PATH_N], name[256], dest[PATH_N], err[160];
+    src[0] = name[0] = dest[0] = err[0] = 0;
+    pthread_mutex_lock(&s->mu);
+    if (s->loaded > 0 && s->loaded <= s->nfiles) {
+        snprintf(src, sizeof src, "%s", s->files[s->loaded - 1]);
+        stem(src, name, sizeof name);
+    }
+    pthread_mutex_unlock(&s->mu);
+    int ok = 0;
+    if (!src[0]) snprintf(err, sizeof err, "load a group first");
+    else if (!pick_export_dir(s, dest, (int)sizeof dest)) snprintf(err, sizeof err, "no folder for kits");
+    else {
+        PlayKit *copy = play_load(src);
+        if (!copy) snprintf(err, sizeof err, "could not reload group");
+        else {
+            ok = play_export_xpm(copy, dest, name, err, (int)sizeof err);
+            play_free(copy);
+        }
+    }
+    pthread_mutex_lock(&s->mu);
+    if (ok) {
+        const char *b = strrchr(dest, '/');
+        snprintf(s->pat_msg, sizeof s->pat_msg, "kit saved · %s", name);
+        (void)b;
+    } else if (err[0])
+        snprintf(s->pat_msg, sizeof s->pat_msg, "%s", err);
+    else
+        snprintf(s->pat_msg, sizeof s->pat_msg, "export failed");
+    s->export_on = 0;
+    s->rev++;
+    pthread_mutex_unlock(&s->mu);
+    return NULL;
+}
+
+static void kick_export(State *s) {
+    if (!s->need_export || s->export_on) return;
+    s->need_export = 0;
+    s->export_on = 1;
+    if (pthread_create(&s->export_th, NULL, export_main, s) != 0) {
+        s->export_on = 0;
+        snprintf(s->pat_msg, sizeof s->pat_msg, "export failed");
+        s->rev++;
+    }
+}
+
 static void service(State *s) {
     s->block_n++;
     kick_scan(s);
+    kick_export(s);
     if (s->want[0] && s->nfiles > 0 && s->scan_done) {
         for (int i = 0; i < s->nfiles; i++) {
             char name[256];
@@ -648,6 +768,7 @@ static void destroy(void *inst) {
     if (!s) return;
     s->stop = 1;
     if (s->thread_on) pthread_join(s->thread, NULL);
+    if (s->export_on) pthread_join(s->export_th, NULL);
     play_free(s->kit);
     seq_close(s);
     pthread_mutex_destroy(&s->mu);
@@ -762,6 +883,15 @@ static void set_param(void *inst, const char *key, const char *val) {
         /* The on-screen button is gone. Play and stop are the host transport. */
     } else if (!strcmp(key, "pat_copy")) {
         if (atoi(val) > 0) copy_pattern(s);
+    } else if (!strcmp(key, "export_kit")) {
+        if (atoi(val) > 0 && !s->export_on) {
+            if (!s->kit) snprintf(s->pat_msg, sizeof s->pat_msg, "load a group first");
+            else {
+                s->need_export = 1;
+                snprintf(s->pat_msg, sizeof s->pat_msg, "making kit…");
+                s->rev++;
+            }
+        }
     } else if (!strcmp(key, "root_pick")) {
         if (atoi(val) > 0 && !s->picking) open_browser(s);
     } else if (!strcmp(key, "root_use")) {

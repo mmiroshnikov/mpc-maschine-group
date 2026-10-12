@@ -15,7 +15,7 @@
   },
   "build": {
     "root": "..",
-    "sources": ["src/mxgrp.c", "src/play.c", "src/engine.c"],
+    "sources": ["src/mxgrp.c", "src/play.c", "src/xpm.c", "src/engine.c"],
     "cflags": ["-Isrc"],
     "libs": ["-lm", "-lpthread", "-ldl"]
   }
