@@ -1,0 +1,4 @@
+vst/build/
+build/
+*.so
+.DS_Store
