@@ -1,0 +1,22 @@
+name: Release
+on:
+  workflow_dispatch:
+    inputs:
+      version: { description: "X.Y.Z, e.g. 1.0.0", required: true }
+      dry_run: { type: boolean, default: false }
+jobs:
+  vst:
+    uses: sd88me/mpc-vst-plugins/.github/workflows/vst-release.yml@b6e2197731fc7cc4dd491d34c4a83c4348c3babc
+    permissions: { contents: write }
+    with:
+      tag: maschine-group-v${{ inputs.version }}
+      version: ${{ inputs.version }}
+      tools_ref: b6e2197731fc7cc4dd491d34c4a83c4348c3babc
+      vst_dir: vst
+      build: '"$MPC_VST/tools/build_port.sh" vst/vst.json'
+      host_test: 'LSAN_OPTIONS=suppressions=vst/lsan.supp "$MPC_VST/tools/test_port.sh" vst/vst.json'
+      about: Opens a Native Instruments Maschine 2 drum group (.mxgrp) and plays its pads and stored patterns.
+      plugin_id: maschine-group
+      license: MIT
+      user_data: groups
+      dry_run: ${{ inputs.dry_run }}

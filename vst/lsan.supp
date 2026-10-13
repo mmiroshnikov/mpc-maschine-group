@@ -1,0 +1,3 @@
+# libasound keeps its parsed config in a process-wide cache that snd_seq_open fills; MPC owns that
+# cache on the device, so the plugin must not free it. Not a plugin leak.
+leak:seq_open
